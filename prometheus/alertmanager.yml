@@ -1,0 +1,41 @@
+  GNU nano 7.2                                                                                                    alertmanager.yml                                                                                                              global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 3h
+  receiver: 'email_notifications'
+
+receivers:
+- name: 'email_notifications'
+  email_configs:
+  - to: 'wiembm2001@gmail.com'
+    from: 'wiembm2001@gmail.com'
+    smarthost: 'smtp.gmail.com:587'
+    auth_username: 'wiembm2001@gmail.com'
+    auth_password: 'vewt jthb vsvb cnox'
+    require_tls: true
+    send_resolved: true
+    headers:
+      Subject: "[Alert] {{ .CommonLabels.alertname }} on {{ .CommonLabels.job }} is firing"
+    html: |
+      <html>
+        <body>
+          <h3>Alert Details:</h3>
+          <p><b>Alert:</b> {{ .CommonLabels.alertname }}</p>
+          <p><b>Severity:</b> {{ .CommonLabels.severity }}</p>
+          <p><b>Description:</b> {{ .CommonAnnotations.description }}</p>
+          <p><b>Instance:</b> {{ .CommonLabels.instance }}</p>
+          <p><b>Time:</b> {{ .StartsAt }}</p>
+          <p>Please check the alert and take necessary actions.</p>
+        </body>
+      </html>
+    text: |
+      Alert: {{ .CommonLabels.alertname }}
+      Severity: {{ .CommonLabels.severity }}
+      Description: {{ .CommonAnnotations.description }}
+      Instance: {{ .CommonLabels.instance }}
+      Time: {{ .StartsAt }}
+      Please check the alert and take necessary actions.
