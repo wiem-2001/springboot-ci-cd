@@ -1,0 +1,63 @@
+services:
+  db:
+    image: mysql:latest
+    container_name: mysql-test
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"   
+      MYSQL_DATABASE: foyer
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "3310:3306"
+    networks:
+      - webwizards-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "-u", "root", "ping"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 10s
+  mysqld-exporter:
+    image: quay.io/prometheus/mysqld-exporter
+    container_name: mysql-exporter
+    command:
+      - "--mysqld.username=root:"
+      - "--mysqld.address=db:3306"
+    ports:
+      - "9104:9104"
+    volumes:
+      - mysqld-exporter-data:/exporter-data
+    networks:
+      - webwizards-network
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure
+  app:
+    build:
+      context: /var/lib/jenkins/workspace/springboot_devops_pipeline/
+      dockerfile: Dockerfile
+    image: wiem23/wiembenmansour-4twin4-webwizards:latest
+    ports:
+      - "9090:8083"
+    environment:
+      SPRING_DATASOURCE_HOST: db
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD:
+      SPRING_DATASOURCE_PORT: 3306
+    depends_on:
+      db:
+          condition: service_healthy
+    volumes:
+      - app-data:/foyer
+    networks:
+      - webwizards-network
+    restart: no
+    entrypoint: ["java", "-jar", "/foyer/foyer-3.0.0.jar"]
+networks:
+  webwizards-network:
+    external: true
+volumes:
+  mysql-data:
+  app-data:
+  mysqld-exporter-data:

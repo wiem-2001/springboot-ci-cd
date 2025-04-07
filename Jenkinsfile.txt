@@ -1,0 +1,115 @@
+pipeline {
+    agent any
+    tools { maven 'Maven home' }
+    parameters { string(name: 'BRANCH_NAME', defaultValue: 'main', description: 'Branch to build') }
+    environment {
+        DB_NAME = 'foyer'
+        DB_USER = 'root'
+        DB_PASSWORD = ''
+        DB_URL = "jdbc:mysql://172.19.105.27:3310/${DB_NAME}" 
+        DOCKER_IMAGE = 'wiem23/wiembenmansour-4twin4-webwizards'
+        DOCKER_REGISTRY = 'https://index.docker.io/v1/'
+        COMPOSE_PATH = "${WORKSPACE}/docker-compose-app.yml"
+        SONAR_COMPOSE_PATH = "${WORKSPACE}/docker-compose-ci.yml"
+        SONARQUBE_URL = 'http://172.19.105.27:9000'
+        SONARQUBE_TOKEN = credentials('sonarqube')  
+        MONITORING_COMPOSE_PATH = "${WORKSPACE}/docker-compose-monitoring.yml"
+    }
+    stages {
+        stage('Git Checkout') { 
+            steps { 
+                git branch: "${params.BRANCH_NAME}", credentialsId: 'pi-credentiels', url: 'https://github.com/Hafedh-Jendoubi/Web-Wizards-Devops.git' 
+            } 
+        }
+        stage('Maven Clean') { 
+            steps { 
+                sh 'mvn clean' 
+            } 
+        }
+        stage('Start Services') {
+            steps {
+                sh "docker-compose -f ${COMPOSE_PATH} -f ${SONAR_COMPOSE_PATH} -f ${MONITORING_COMPOSE_PATH} up -d"
+                sleep 90 
+            }
+        }
+        stage('Maven Test') {
+            steps { 
+                sh 'mvn verify -Dspring.datasource.url=${DB_URL} -Dspring.datasource.username=${DB_USER} -Dspring.datasource.password=${DB_PASSWORD}' 
+            }
+        }
+
+        stage('Generate JaCoCo Report') {
+            steps {
+                sh 'mvn jacoco:report'
+            }
+        }
+        stage('Maven Package') {
+            steps { 
+                sh 'mvn package -DskipTests' 
+            }
+        }
+      stage('SonarQube Analysis') {
+            steps { 
+                script {
+                    withSonarQubeEnv('sonarqube') { // Use the configured SonarQube instance name
+                        sh 'mvn sonar:sonar -Dsonar.projectKey=springboot_sonaqube -Dsonar.projectName=springboot_sonaqube -Dsonar.host.url=${SONARQUBE_URL} -Dsonar.token=${SONARQUBE_TOKEN} -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml'
+                    }
+                }
+            }
+        }
+
+      stage('Quality Gate Check') {
+            steps {
+                script {
+                    timeout(time: 5, unit: 'MINUTES') {
+                        def qg = waitForQualityGate() // Wait for SonarQube quality gate result
+                        if (qg.status != 'OK') {
+                            error "Pipeline aborted due to quality gate failure: ${qg.status}"
+                        }
+                    }
+                }
+            }
+        }
+
+
+        stage('Publish to Nexus') {
+            steps {
+                sh 'mvn deploy -DskipTests --settings /usr/share/maven/conf/settings.xml -DaltDeploymentRepository=maven-central-repository::default::http://172.19.105.27:8081/repository/maven-central-repository/'
+            }
+        }
+        stage('Stop Services') {
+            steps { 
+                sh "docker-compose -f ${COMPOSE_PATH} -f ${SONAR_COMPOSE_PATH} -f ${MONITORING_COMPOSE_PATH} down"
+                 
+               
+            }
+        }
+        stage('Build & Push Docker Image') { 
+            steps { 
+                script {
+                    sh "docker build -t ${DOCKER_IMAGE} ."
+                    docker.withRegistry(DOCKER_REGISTRY, 'dockerhub-credentials') {
+                        sh "docker push ${DOCKER_IMAGE}"
+                    }
+                }
+            }
+        }
+    }
+    post {
+        success {
+            mail to: 'wiembm2001@gmail.com',
+                 subject: "Pipeline succeeded: ${env.JOB_NAME} - ${env.BUILD_NUMBER}",
+                 body: "The pipeline was successful. Check the details here: ${env.BUILD_URL}"
+        }
+        failure {
+            mail to: 'wiembm2001@gmail.com',
+                 subject: "Pipeline failed: ${env.JOB_NAME} - ${env.BUILD_NUMBER}",
+                 body: "The pipeline failed. Please check the logs: ${env.BUILD_URL}"
+        }
+        unstable {
+            mail to: 'wiembm2001@gmail.com',
+                 subject: "Pipeline unstable: ${env.JOB_NAME} - ${env.BUILD_NUMBER}",
+                 body: "The pipeline finished with an unstable status. Check the details here: ${env.BUILD_URL}"
+        }
+    }
+}
